@@ -8,6 +8,8 @@ var Twit = require('twit');
 var config = require('./config');
 var FB = require('fb');
 var request = require('request');
+var index    = require('./routes/index');
+
 
 var T = new Twit({
   consumer_key:         config.twitter.consumer_key,
@@ -19,6 +21,13 @@ var T = new Twit({
 
 
 var app = express();
+var bodyParser = require('body-parser')
+app.use( bodyParser.json() );       // to support JSON-encoded bodies
+app.use(bodyParser.urlencoded({     // to support URL-encoded bodies
+    extended: true
+}));
+app.use(express.static(__dirname + "public"));
+
 
 // error handler
 app.use(function(err, req, res, next) {
@@ -31,16 +40,60 @@ app.use(function(err, req, res, next) {
   res.render('error');
 });
 
+app.use('/index',  index);
+
+
+app.post('/setConfigs', function(sReq, sRes){
+    var email = sReq.query.email;
+    console.log(email);
+});
+
+app.get('/', function (req, res) {
+    res.render('index', { title: 'Express' });
+})
+
+if(config.facebook.active){
+    FB.api('oauth/access_token', {
+        client_id: config.facebook.app_token,
+        client_secret: config.facebook.app_secret,
+        grant_type: 'client_credentials'
+    }, function (res) {
+        if(!res || res.error) {
+            console.log(!res ? 'error occurred' : res.error);
+            return;
+        }
+
+        //var accessToken = res.access_token;
+        FB.setAccessToken(config.facebook.access_token);
+        createPhotoAlbumId();
+    });
+}
+
+
+function createPhotoAlbumId() {
+    FB.api(
+        "me/albums", 'post', {name: config.facebook.album_name, message: config.facebook.album_description},
+        function (response) {
+            if(!response || response.error) {
+                console.log(!response ? 'error occurred' : response.error);
+                return;
+            }
+            if (response && !response.error) {
+                console.log('Album Id for this event:'+response.id);
+            }
+        }
+    );
+}
+
 // Watch directory for changes then perform some action
 require('chokidar').watch('./photos', {ignored: /[\/\\]\./}).on('add', function(event, photoPath) {
   var basename = path.basename(event);
   var watermarkX = 0;
   var watermarkY = 0;
   var watermarkPath = __dirname + config.paths.watermark_basename;
-  var watermarkDirectoryPath = __dirname + config.paths.watermark_directory;
   var ExifImage = exif.ExifImage;
-  var fbAlbums = [];
-  var fbAlbumId;
+  var watermarkDirectoryPath = __dirname + config.paths.watermark_directory;
+
 
     try {
         new ExifImage({ image : __dirname + '/photos/'+basename }, function (error, exifData) {
@@ -59,7 +112,7 @@ require('chokidar').watch('./photos', {ignored: /[\/\\]\./}).on('add', function(
                         var command = [];
                         command.push("image Over ", watermarkX, ",", watermarkY, " 0,0 ", watermarkPortraitPath);
                         var graphicMagicCommand = command.join("");
-                        addWatermarkToPhoto(graphicMagicCommand, watermarkPortraitPath);
+                        addWatermarkToPhoto(graphicMagicCommand);
                     });
                 } else if (isPhotoOrientationLandscape(exifData)) {
                     console.log('photo is landscape');
@@ -68,7 +121,7 @@ require('chokidar').watch('./photos', {ignored: /[\/\\]\./}).on('add', function(
                     var command = [];
                     command.push("image Over ", watermarkX, ",", watermarkY, " 0,0 ", watermarkPath);
                     var graphicMagicCommand = command.join("");
-                    addWatermarkToPhoto(graphicMagicCommand, watermarkPath);
+                    addWatermarkToPhoto(graphicMagicCommand);
                 }
             }
         });
@@ -91,29 +144,34 @@ require('chokidar').watch('./photos', {ignored: /[\/\\]\./}).on('add', function(
         return watermarkPortraitPath;
     }
 
-    function addWatermarkToPhoto(command, watermarkPortraitPath) {
+    function addWatermarkToPhoto(command) {
         gm(__dirname + '/photos/' + basename)
             .draw(command)
             .write('' + __dirname + '/waterMarkedPhotos/' + basename, function (e) {
-               // postMediaToTwitter();
-                //postMediaToFacebook();
-                console.log('watermarked: '+ basename);
-                console.log('watermarked: '+ basename);
-                console.log('' + __dirname + '/waterMarkedPhotos/' + basename);
+                console.log('Successfully added watermark to '+'' + __dirname + '/waterMarkedPhotos/' + basename);
+                if(config.twitter.active){
+                    postMediaToTwitter();
+                }
+                if (config.facebook.active){
+                    postMediaToFacebook();
+                }
             });
     }
 
     function postMediaToTwitter() {
         var b64content = fs.readFileSync(watermarkDirectoryPath + basename, {encoding: 'base64'})
+        console.log('beginning twitter upload: ' +watermarkDirectoryPath + basename)
 
         T.post('media/upload', {media_data: b64content}, function (err, data, response) {
             // now we can assign alt text to the media, for use by screen readers and
             // other text-based presentations and interpreters
+            console.log('error: '+err);
             var mediaIdStr = data.media_id_string
             var altText = "Some photo that I uploaded"
             var meta_params = {media_id: mediaIdStr, alt_text: {text: altText}}
 
             T.post('media/metadata/create', meta_params, function (err, data, response) {
+                console.log('error: '+err);
                 if (!err) {
                     // now we can reference the media and post a tweet (media will attach to the tweet)
                     var params = {status: config.twitter.hashtag, media_ids: [mediaIdStr]}
@@ -137,53 +195,34 @@ require('chokidar').watch('./photos', {ignored: /[\/\\]\./}).on('add', function(
                 return;
             }
 
-            //var accessToken = res.access_token;
-            FB.setAccessToken(config.facebook.access_token);
-            //sendToFb();
-        });
-    }
-
-
-    function sendToFb() {
-        FB.api(
-            "me/albums", 'post', {name: config.facebook.album_name, message: config.facebook.album_description},
-            function (response) {
-                if(!response || response.error) {
-                    console.log(!response ? 'error occurred' : response.error);
-                    return;
-                }
-                if (response && !response.error) {
-                    console.log('Album Id for this event:'+response.id);
-                    fbAlbumId = response.id;
-                }
-
-                FB.api(
-                    "me/albums",
-                    function (response) {
-                        if (response && !response.error) {
-                            for (var name in response.data) {
-                                if (response.data.hasOwnProperty(name)) {
-                                    var val = response.data[name];
-                                    console.log(val.id);
-                                    fbAlbums.push(val.id);
+            FB.api(
+                "me/albums",
+                function (response) {
+                    if (response && !response.error) {
+                        for (var name in response.data) {
+                            if (response.data.hasOwnProperty(name)) {
+                                var val = response.data[name];
+                                console.log(val.name);
+                                if(val.name == config.facebook.album_name){
+                                    FB.api(''+val.id+'/photos', 'post', { source: fs.createReadStream(watermarkDirectoryPath + basename), caption: config.facebook.caption }, function (res) {
+                                        if(!res || res.error) {
+                                            console.log(!res ? 'error occurred' : res.error);
+                                            return;
+                                        }
+                                        console.log('Post Id: ' + res.post_id);
+                                    });
                                 }
                             }
                         }
-
-
-                        FB.api(''+fbAlbumId+'/photos', 'post', { source: fs.createReadStream(watermarkDirectoryPath + basename), caption: config.facebook.caption }, function (res) {
-                            if(!res || res.error) {
-                                console.log(!res ? 'error occurred' : res.error);
-                                return;
-                            }
-                            console.log('Post Id: ' + res.post_id);
-                        });
                     }
-                );
-            }
-        );
+                }
+            );
+        });
     }
 });
 
+app.listen(5000, function () {
+    console.log('Example app listening on port 3000!')
+})
 
 module.exports = app;
