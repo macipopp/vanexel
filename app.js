@@ -21,12 +21,15 @@ var T = new Twit({
 
 
 var app = express();
-var bodyParser = require('body-parser')
-app.use( bodyParser.json() );       // to support JSON-encoded bodies
-app.use(bodyParser.urlencoded({     // to support URL-encoded bodies
-    extended: true
-}));
-app.use(express.static(__dirname + "public"));
+//var bodyParser = require('body-parser')
+//app.use( bodyParser.json() );       // to support JSON-encoded bodies
+//app.use(bodyParser.urlencoded({     // to support URL-encoded bodies
+//    extended: true
+//}));
+//app.use(express.static(__dirname + "public"));
+
+//Setting default template
+app.set('view engine', 'jade')
 
 
 // error handler
@@ -40,17 +43,7 @@ app.use(function(err, req, res, next) {
   res.render('error');
 });
 
-app.use('/index',  index);
-
-
-app.post('/setConfigs', function(sReq, sRes){
-    var email = sReq.query.email;
-    console.log(email);
-});
-
-app.get('/', function (req, res) {
-    res.render('index', { title: 'Express' });
-})
+app.use('/', require('./routes/index'));
 
 if(config.facebook.active){
     FB.api('oauth/access_token', {
@@ -87,12 +80,12 @@ function createPhotoAlbumId() {
 
 // Watch directory for changes then perform some action
 require('chokidar').watch('./photos', {ignored: /[\/\\]\./}).on('add', function(event, photoPath) {
-  var basename = path.basename(event);
-  var watermarkX = 0;
-  var watermarkY = 0;
-  var watermarkPath = __dirname + config.paths.watermark_basename;
-  var ExifImage = exif.ExifImage;
-  var watermarkDirectoryPath = __dirname + config.paths.watermark_directory;
+    var basename = path.basename(event);
+    var watermarkX = 0;
+    var watermarkY = 0;
+    var watermarkPath = __dirname + config.paths.watermark_basename;
+    var ExifImage = exif.ExifImage;
+    var watermarkDirectoryPath = __dirname + config.paths.watermark_directory;
 
 
     try {
@@ -221,7 +214,7 @@ require('chokidar').watch('./photos', {ignored: /[\/\\]\./}).on('add', function(
     }
 });
 
-app.listen(5000, function () {
+app.listen(3000, function () {
     console.log('Example app listening on port 3000!')
 })
 

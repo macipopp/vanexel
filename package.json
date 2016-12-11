@@ -1,6 +1,7 @@
 {
   "name": "vanexel",
-  "main": "index.html",
+  "node-main": "./app.js",
+  "main": "http://localhost:3000",
   "window": {
     "toolbar": false,
     "width": 800,
